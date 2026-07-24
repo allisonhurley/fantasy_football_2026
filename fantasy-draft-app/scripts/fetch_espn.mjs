@@ -22,9 +22,8 @@ const SEASON = process.env.ESPN_SEASON || new Date().getFullYear();
 
 const POSITIONS = ["QB", "RB", "WR", "TE", "K", "DEF"];
 
-// ESPN public endpoints (no auth, no CORS issue when run from Node)
+// ESPN public endpoint (no auth, no CORS issue when run from Node)
 const RANKINGS_URL = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/fflseasons/${SEASON}/segments/0/leaguedefaults/3?view=kona_player_info`;
-const TEAMS_URL = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams`;
 
 // Normalized name matching — strip suffixes, punctuation, lowercase
 function norm(name) {
