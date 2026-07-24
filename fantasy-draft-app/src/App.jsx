@@ -387,15 +387,31 @@ export default function FantasyDraftAssistant() {
 
   const available = useMemo(() => players.filter((p) => !drafted[p.id]), [players, drafted]);
 
+  // Positions the user has roster slots for (excludes 0-slot positions like DEF off).
+  const activePositions = useMemo(
+    () => ["QB", "RB", "WR", "TE", "K", "DEF"].filter((p) => (roster[p] || 0) > 0),
+    [roster]
+  );
+
+  // If the currently-selected filter becomes invalid (e.g. user set its slots to 0),
+  // fall back to "ALL" so the table never empties unexpectedly.
+  useEffect(() => {
+    if (posFilter !== "ALL" && (roster[posFilter] || 0) === 0) setPosFilter("ALL");
+  }, [roster, posFilter]);
+
   const filtered = useMemo(() => {
     let list = available;
-    if (posFilter !== "ALL") list = list.filter((p) => p.pos === posFilter);
+    if (posFilter === "ALL") {
+      list = list.filter((p) => (roster[p.pos] || 0) > 0);
+    } else {
+      list = list.filter((p) => p.pos === posFilter);
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((p) => p.player.toLowerCase().includes(q) || p.team.toLowerCase().includes(q));
     }
     return [...list].sort((a, b) => a.rank - b.rank);
-  }, [available, posFilter, search]);
+  }, [available, posFilter, search, roster]);
 
   const recommendations = useMemo(() => {
     const scored = available.map((p) => {
@@ -690,7 +706,7 @@ export default function FantasyDraftAssistant() {
 
               {/* Filters */}
               <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap", alignItems: "center", flexShrink: 0 }}>
-                {["ALL", "QB", "RB", "WR", "TE", "K", "DEF"].map((pos) => (
+                {["ALL", ...activePositions].map((pos) => (
                   <Chip key={pos} active={posFilter === pos} onClick={() => setPosFilter(pos)} color={POS_COLOR[pos]}>
                     {pos}
                   </Chip>
