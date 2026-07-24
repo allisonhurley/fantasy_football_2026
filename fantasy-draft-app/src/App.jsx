@@ -195,6 +195,15 @@ function needsFromSlots(slotList) {
   return need;
 }
 
+// Delta between your per-position rank and ESPN's overall rank.
+// Positive = you rank the player higher relative to the market (sleeper).
+// Negative = ESPN ranks the player higher (likely gone earlier than your board).
+// Returns null if either rank is missing (can't compute).
+function rankDelta(p) {
+  if (p.rank == null || p.espn_rank == null) return null;
+  return p.espn_rank - p.rank;
+}
+
 // ---------- Small UI atoms ----------
 function PosBadge({ pos }) {
   return (
@@ -224,6 +233,58 @@ function Chip({ children, active, onClick, color }) {
     >
       {children}
     </button>
+  );
+}
+
+// Small colored chip showing how far the user's rank diverges from ESPN's.
+// Positive delta = you rank higher (sleeper, green); negative = ESPN higher (red).
+// `size` controls compact vs. full rendering for table vs. card/modal.
+function DeltaChip({ delta, size = "sm" }) {
+  if (delta == null || delta === 0) return null;
+  const positive = delta > 0;
+  const bg = positive ? "rgba(30,122,52,0.12)" : "rgba(228,0,43,0.10)";
+  const fg = positive ? COLORS.good : COLORS.red;
+  const pad = size === "sm" ? "1px 5px" : "2px 7px";
+  const fs = size === "sm" ? 9.5 : 11;
+  return (
+    <span
+      title={positive ? "You rank this player higher than ESPN" : "ESPN ranks this player higher than you"}
+      style={{
+        display: "inline-flex", alignItems: "center", fontWeight: 700, borderRadius: 4,
+        background: bg, color: fg, padding: pad, fontSize: fs, fontVariantNumeric: "tabular-nums",
+        letterSpacing: 0.2, marginLeft: 5, whiteSpace: "nowrap",
+      }}
+    >
+      {positive ? "▲" : "▼"}{Math.abs(delta)}
+    </span>
+  );
+}
+
+// Segmented control to switch the ALL-view sort between ESPN / Mine / Delta.
+function RankSortToggle({ value, onChange }) {
+  const opts = [
+    { id: "espn", label: "ESPN" },
+    { id: "mine", label: "Mine" },
+    { id: "delta", label: "Δ" },
+  ];
+  return (
+    <div style={{ display: "inline-flex", border: `1px solid ${COLORS.line}`, borderRadius: 6, overflow: "hidden" }}>
+      {opts.map((o, i) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          style={{
+            padding: "4px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+            border: "none", borderLeft: i === 0 ? "none" : `1px solid ${COLORS.line}`,
+            background: value === o.id ? COLORS.red : "#FFFFFF",
+            color: value === o.id ? "#FFFFFF" : COLORS.muted,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -302,6 +363,7 @@ export default function FantasyDraftAssistant() {
   const [drafted, setDrafted] = useState({}); // id -> { team: slotNumber, overall }
   const [overallPick, setOverallPick] = useState(1);
   const [posFilter, setPosFilter] = useState("ALL");
+  const [rankSort, setRankSort] = useState("espn"); // espn | mine | delta
   const [search, setSearch] = useState("");
   const [profileId, setProfileId] = useState(null);
   const [log, setLog] = useState([]);
@@ -420,8 +482,27 @@ export default function FantasyDraftAssistant() {
       const q = search.toLowerCase();
       list = list.filter((p) => p.player.toLowerCase().includes(q) || p.team.toLowerCase().includes(q));
     }
-    return [...list].sort((a, b) => a.rank - b.rank);
-  }, [available, posFilter, search, roster]);
+    const sorted = [...list];
+    if (posFilter === "ALL") {
+      // Your 'rank' column is per-position, so in the ALL view 'mine' sorts by
+      // predicted_fantasy_pts (your cross-position board); per-position views
+      // still sort by your per-position rank below.
+      if (rankSort === "delta") {
+        sorted.sort((a, b) => {
+          const da = rankDelta(a);
+          const db = rankDelta(b);
+          return (db ?? -Infinity) - (da ?? -Infinity);
+        });
+      } else if (rankSort === "mine") {
+        sorted.sort((a, b) => b.predicted_fantasy_pts - a.predicted_fantasy_pts);
+      } else {
+        sorted.sort((a, b) => (a.espn_rank ?? 9999) - (b.espn_rank ?? 9999));
+      }
+    } else {
+      sorted.sort((a, b) => a.rank - b.rank);
+    }
+    return sorted;
+  }, [available, posFilter, search, roster, rankSort]);
 
   // Kickers only surface once every non-K, non-BENCH starter slot is filled —
   // they're the lowest-value pick by design.
@@ -735,6 +816,9 @@ export default function FantasyDraftAssistant() {
                     {pos}
                   </Chip>
                 ))}
+                {posFilter === "ALL" && (
+                  <RankSortToggle value={rankSort} onChange={setRankSort} />
+                )}
                 <div style={{ position: "relative", marginLeft: "auto", flex: "0 1 200px" }}>
                   <Search size={13} color={COLORS.muted} style={{ position: "absolute", left: 9, top: 8 }} />
                   <input
@@ -751,64 +835,103 @@ export default function FantasyDraftAssistant() {
 
               {/* Player table */}
               <div style={{ border: `1px solid ${COLORS.line}`, borderRadius: 8, overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: COLORS.surface }}>
-                <div
-                  style={{
-                    display: "grid", gridTemplateColumns: isMobile ? "34px 1fr 64px 40px" : "38px 1fr 56px 78px 78px 40px",
-                    padding: isMobile ? "6px 10px" : "6px 12px", background: COLORS.surfaceAlt, fontSize: 10, color: COLORS.muted,
-                    letterSpacing: 0.4, fontWeight: 700, borderBottom: `1px solid ${COLORS.line}`, flexShrink: 0,
-                  }}
-                >
-                  <div>POS</div><div>PLAYER</div>
-                  {!isMobile && <div>RK</div>}
-                  <div>PROJ</div>
-                  {!isMobile && <div>2025</div>}
-                  <div></div>
-                </div>
-                <div className="fda-scroll" style={{ overflowY: "auto", flex: 1 }}>
-                  {filtered.length === 0 && (
-                    <div style={{ padding: 20, textAlign: "center", color: COLORS.muted, fontSize: 12.5 }}>
-                      No players match. Try a different filter or search term.
-                    </div>
-                  )}
-                  {filtered.map((p) => (
-                    <div
-                      key={p.id}
-                      className="fda-row"
-                      style={{
-                        display: "grid", gridTemplateColumns: isMobile ? "34px 1fr 64px 40px" : "38px 1fr 56px 78px 78px 40px",
-                        padding: isMobile ? "7px 10px" : "7px 12px", borderTop: `1px solid ${COLORS.line}`, alignItems: "center",
-                        fontSize: 12.5, cursor: "pointer",
-                      }}
-                      onClick={() => setProfileId(p.id)}
-                    >
-                      <div><PosBadge pos={p.pos} /></div>
-                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        <span style={{ fontWeight: 700 }}>{p.player}</span>{" "}
-                        <span style={{ color: COLORS.muted, fontSize: 11 }}>{p.team} · bye {p.bye_week}</span>
+                {(() => {
+                  const dualRank = posFilter === "ALL" && !isMobile;
+                  const cols = isMobile
+                    ? "34px 1fr 64px 40px"
+                    : dualRank
+                      ? "34px 1fr 44px 44px 70px 70px 36px"
+                      : "38px 1fr 56px 78px 78px 40px";
+                  const rankLabel = rankSort === "espn" ? "ESPN" : rankSort === "mine" ? "MINE" : "Δ";
+                  return (
+                    <>
+                      <div
+                        style={{
+                          display: "grid", gridTemplateColumns: cols,
+                          padding: isMobile ? "6px 10px" : "6px 12px", background: COLORS.surfaceAlt, fontSize: 10, color: COLORS.muted,
+                          letterSpacing: 0.4, fontWeight: 700, borderBottom: `1px solid ${COLORS.line}`, flexShrink: 0,
+                        }}
+                      >
+                        <div>POS</div><div>PLAYER</div>
+                        {dualRank ? (
+                          <>
+                            <div style={{ color: rankSort === "espn" ? COLORS.red : COLORS.muted }}>ESPN</div>
+                            <div style={{ color: rankSort === "mine" ? COLORS.red : COLORS.muted }}>MINE</div>
+                          </>
+                        ) : (
+                          !isMobile && <div>{rankLabel}</div>
+                        )}
+                        <div>PROJ</div>
+                        {!isMobile && <div>2025</div>}
+                        <div></div>
                       </div>
-                      {!isMobile && <div style={{ color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>#{p.rank}</div>}
-                      <div style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{p.predicted_fantasy_pts.toFixed(1)}</div>
-                      {!isMobile && <div style={{ color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>{p.fantasy_pts_2025.toFixed(1)}</div>}
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <button
-                          title={isMyPick ? "Draft to your team" : `Draft to ${teamLabel(slotOnClock)}`}
-                          className="fda-btn"
-                          disabled={draftOver}
-                          onClick={() => draftPlayer(p.id, slotOnClock)}
-                          style={{
-                            width: 26, height: 26, borderRadius: 5,
-                            border: `1px solid ${isMyPick ? COLORS.red : COLORS.line}`,
-                            background: isMyPick ? COLORS.red : "transparent",
-                            color: isMyPick ? "#FFF" : COLORS.muted, cursor: draftOver ? "default" : "pointer",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                          }}
-                        >
-                          <Plus size={14} />
-                        </button>
+                      <div className="fda-scroll" style={{ overflowY: "auto", flex: 1 }}>
+                        {filtered.length === 0 && (
+                          <div style={{ padding: 20, textAlign: "center", color: COLORS.muted, fontSize: 12.5 }}>
+                            No players match. Try a different filter or search term.
+                          </div>
+                        )}
+                        {filtered.map((p) => {
+                          const delta = rankDelta(p);
+                          return (
+                            <div
+                              key={p.id}
+                              className="fda-row"
+                              style={{
+                                display: "grid", gridTemplateColumns: cols,
+                                padding: isMobile ? "7px 10px" : "7px 12px", borderTop: `1px solid ${COLORS.line}`, alignItems: "center",
+                                fontSize: 12.5, cursor: "pointer",
+                              }}
+                              onClick={() => setProfileId(p.id)}
+                            >
+                              <div><PosBadge pos={p.pos} /></div>
+                              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <span style={{ fontWeight: 700 }}>{p.player}</span>{" "}
+                                <span style={{ color: COLORS.muted, fontSize: 11 }}>{p.team} · bye {p.bye_week}</span>
+                                {posFilter === "ALL" && <DeltaChip delta={delta} />}
+                              </div>
+                              {dualRank ? (
+                                <>
+                                  <div style={{ color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>
+                                    {p.espn_rank ?? "—"}
+                                  </div>
+                                  <div style={{ color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>
+                                    {p.rank}
+                                  </div>
+                                </>
+                              ) : (
+                                !isMobile && (
+                                  <div style={{ color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>
+                                    {rankSort === "espn" ? (p.espn_rank ?? "—") : p.rank}
+                                  </div>
+                                )
+                              )}
+                              <div style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{p.predicted_fantasy_pts.toFixed(1)}</div>
+                              {!isMobile && <div style={{ color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>{p.fantasy_pts_2025.toFixed(1)}</div>}
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  title={isMyPick ? "Draft to your team" : `Draft to ${teamLabel(slotOnClock)}`}
+                                  className="fda-btn"
+                                  disabled={draftOver}
+                                  onClick={() => draftPlayer(p.id, slotOnClock)}
+                                  style={{
+                                    width: 26, height: 26, borderRadius: 5,
+                                    border: `1px solid ${isMyPick ? COLORS.red : COLORS.line}`,
+                                    background: isMyPick ? COLORS.red : "transparent",
+                                    color: isMyPick ? "#FFF" : COLORS.muted, cursor: draftOver ? "default" : "pointer",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                  }}
+                                >
+                                  <Plus size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
