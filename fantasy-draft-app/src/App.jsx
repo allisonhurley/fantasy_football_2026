@@ -153,6 +153,16 @@ const DEFAULT_ROSTER = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1, BENC
 const FLEX_ELIGIBLE = ["RB", "WR", "TE"];
 const POS_ORDER = ["QB", "RB", "WR", "TE", "FLEX", "K", "DEF", "BENCH"];
 
+// Positional scarcity weights applied to the value-over-replacement score.
+// RB/WR/TE are boosted (starters must be filled and quality drops off fast),
+// QB is discounted (every starter scores well, replaceable), K is heavily
+// discounted and also hard-gated until all other starters are filled (see
+// onlyKAndBenchLeft in recommendations/pickBestFor).
+const POS_PRIORITY = { QB: 0.90, RB: 1.15, WR: 1.15, TE: 1.10, K: 0.50, DEF: 0.70 };
+// No-need multipliers: when the user has no open starter slot at a position,
+// players at scarce positions still carry weight; QB/K/DEF get deprioritized.
+const NO_NEED_MULT = { QB: 0.55, RB: 0.85, WR: 0.85, TE: 0.85, K: 0.55, DEF: 0.55 };
+
 function buildRosterSlots(roster) {
   const slotList = [];
   POS_ORDER.forEach((type) => {
@@ -413,17 +423,28 @@ export default function FantasyDraftAssistant() {
     return [...list].sort((a, b) => a.rank - b.rank);
   }, [available, posFilter, search, roster]);
 
+  // Kickers only surface once every non-K, non-BENCH starter slot is filled —
+  // they're the lowest-value pick by design.
+  const onlyKAndBenchLeft = useMemo(
+    () => openNeeds.QB === 0 && openNeeds.RB === 0 && openNeeds.WR === 0 && openNeeds.TE === 0 && openNeeds.FLEX === 0 && openNeeds.DEF === 0,
+    [openNeeds]
+  );
+
   const recommendations = useMemo(() => {
-    const scored = available.map((p) => {
-      const base = baselines[p.pos] || 0;
-      const value = p.predicted_fantasy_pts - base;
-      let mult = 0.7;
-      if (openNeeds[p.pos] > 0) mult = 1.35;
-      else if (FLEX_ELIGIBLE.includes(p.pos) && openNeeds.FLEX > 0) mult = 1.1;
-      return { ...p, score: value * mult };
-    });
+    const scored = available
+      .filter((p) => p.pos !== "K" || onlyKAndBenchLeft)
+      .map((p) => {
+        const base = baselines[p.pos] || 0;
+        const value = p.predicted_fantasy_pts - base;
+        let mult;
+        if (openNeeds[p.pos] > 0) mult = 1.35;
+        else if (FLEX_ELIGIBLE.includes(p.pos) && openNeeds.FLEX > 0) mult = 1.1;
+        else mult = NO_NEED_MULT[p.pos] ?? 0.7;
+        const priority = POS_PRIORITY[p.pos] ?? 1;
+        return { ...p, score: value * mult * priority };
+      });
     return scored.sort((a, b) => b.score - a.score).slice(0, 5);
-  }, [available, baselines, openNeeds]);
+  }, [available, baselines, openNeeds, onlyKAndBenchLeft]);
 
   // draft a specific player to whichever team slot is currently on the clock
   function draftPlayer(id, teamSlot) {
@@ -451,7 +472,8 @@ export default function FantasyDraftAssistant() {
       .filter((p) => currentDraftedMap[p.id]?.team === teamSlot)
       .map((p) => ({ ...p, _overall: currentDraftedMap[p.id].overall }));
     const needs = needsFromSlots(fillSlots(buildRosterSlots(roster), teamPlayers));
-    const avail = players.filter((p) => !currentDraftedMap[p.id]);
+    const simOnlyKLeft = needs.QB === 0 && needs.RB === 0 && needs.WR === 0 && needs.TE === 0 && needs.FLEX === 0 && needs.DEF === 0;
+    const avail = players.filter((p) => !currentDraftedMap[p.id] && (p.pos !== "K" || simOnlyKLeft));
     if (avail.length === 0) return null;
     let best = null;
     let bestScore = -Infinity;
@@ -459,10 +481,12 @@ export default function FantasyDraftAssistant() {
       const noise = noiseMap[p.id] ?? 1;
       const base = baselines[p.pos] || 0;
       const value = p.predicted_fantasy_pts * noise - base;
-      let mult = 0.6;
+      let mult;
       if (needs[p.pos] > 0) mult = 1.3;
       else if (FLEX_ELIGIBLE.includes(p.pos) && needs.FLEX > 0) mult = 1.05;
-      const score = value * mult;
+      else mult = NO_NEED_MULT[p.pos] ?? 0.6;
+      const priority = POS_PRIORITY[p.pos] ?? 1;
+      const score = value * mult * priority;
       if (score > bestScore) {
         bestScore = score;
         best = p;
