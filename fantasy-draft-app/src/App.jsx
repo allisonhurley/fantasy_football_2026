@@ -803,6 +803,10 @@ export default function FantasyDraftAssistant() {
                       <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 2 }}>{p.player}</div>
                       <div style={{ fontSize: 10.5, color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>
                         Rank #{p.rank} · {p.predicted_fantasy_pts.toFixed(1)} pts
+                        {p.espn_rank != null && <span> · ESPN #{p.espn_rank}</span>}
+                      </div>
+                      <div style={{ marginTop: 3 }}>
+                        <DeltaChip delta={rankDelta(p)} size="md" />
                       </div>
                     </div>
                   ))}
@@ -1028,7 +1032,7 @@ export default function FantasyDraftAssistant() {
                   {profilePlayer.player}
                 </h3>
                 <div style={{ fontSize: 11.5, color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>
-                  {profilePlayer.team} · Bye {profilePlayer.bye_week} · Rank #{profilePlayer.rank}
+                  {profilePlayer.team} · Bye {profilePlayer.bye_week}
                 </div>
               </div>
               <button
@@ -1038,6 +1042,29 @@ export default function FantasyDraftAssistant() {
                 <X size={17} />
               </button>
             </div>
+
+            {/* Rankings comparison */}
+            {(() => {
+              const p = profilePlayer;
+              const delta = rankDelta(p);
+              let label = "Consensus";
+              let labelColor = COLORS.muted;
+              if (delta > 0) { label = "Sleeper pick"; labelColor = COLORS.good; }
+              else if (delta < 0) { label = "Market favorite"; labelColor = COLORS.red; }
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  <Stat label="ESPN overall rank" value={p.espn_rank ?? "—"} />
+                  <Stat label="Your position rank" value={`#${p.rank}`} />
+                  {delta != null && (
+                    <div style={{ gridColumn: "1 / -1", background: COLORS.surfaceAlt, borderRadius: 6, padding: "8px 10px", border: `1px solid ${COLORS.line}`, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 10, color: COLORS.muted, letterSpacing: 0.5, fontWeight: 700 }}>Δ vs ESPN</span>
+                      <DeltaChip delta={delta} size="md" />
+                      <span style={{ fontSize: 11, fontWeight: 700, color: labelColor, marginLeft: "auto" }}>{label}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
               <Stat label="Predicted pts" value={profilePlayer.predicted_fantasy_pts.toFixed(1)} />
