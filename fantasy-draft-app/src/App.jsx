@@ -204,6 +204,15 @@ function rankDelta(p) {
   return p.espn_rank - p.rank;
 }
 
+// ESPN public CDN headshot URL. DEF uses the team logo by team abbreviation;
+// everyone else uses the athlete-ID headshot. Returns null if we lack the ID.
+function playerImageUrl(p) {
+  if (!p) return null;
+  if (p.pos === "DEF") return `https://a.espncdn.com/i/teamlogos/nfl/500/${p.team}.png`;
+  if (!p.espn_id) return null;
+  return `https://a.espncdn.com/i/headshots/nfl/players/full/${p.espn_id}.png`;
+}
+
 // ---------- Small UI atoms ----------
 function PosBadge({ pos }) {
   return (
@@ -257,6 +266,37 @@ function DeltaChip({ delta, size = "sm" }) {
     >
       {positive ? "▲" : "▼"}{Math.abs(delta)}
     </span>
+  );
+}
+
+// Player headshot from ESPN's CDN. Falls back to a colored initials block if
+// the URL is missing or fails to load (broken espn_id, network error, etc.).
+function PlayerHeadshot({ player, size = 96 }) {
+  const url = playerImageUrl(player);
+  const [errored, setErrored] = useState(false);
+  const showImg = url && !errored;
+  const initial = player?.player?.[0] || "?";
+  return (
+    <div
+      style={{
+        width: size, height: size, borderRadius: 10, overflow: "hidden", flexShrink: 0,
+        background: POS_COLOR[player?.pos] || COLORS.line, display: "flex",
+        alignItems: "center", justifyContent: "center",
+      }}
+    >
+      {showImg ? (
+        <img
+          src={url}
+          alt={player?.player || ""}
+          onError={() => setErrored(true)}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+        />
+      ) : (
+        <span style={{ color: "#FFFFFF", fontWeight: 800, fontSize: size * 0.4, fontFamily: "'Inter', sans-serif" }}>
+          {initial}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -1026,13 +1066,16 @@ export default function FantasyDraftAssistant() {
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-              <div>
-                <PosBadge pos={profilePlayer.pos} />
-                <h3 className="fda-display" style={{ fontSize: 21, margin: "8px 0 2px", fontWeight: 700 }}>
-                  {profilePlayer.player}
-                </h3>
-                <div style={{ fontSize: 11.5, color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>
-                  {profilePlayer.team} · Bye {profilePlayer.bye_week}
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <PlayerHeadshot player={profilePlayer} size={88} />
+                <div>
+                  <PosBadge pos={profilePlayer.pos} />
+                  <h3 className="fda-display" style={{ fontSize: 21, margin: "8px 0 2px", fontWeight: 700 }}>
+                    {profilePlayer.player}
+                  </h3>
+                  <div style={{ fontSize: 11.5, color: COLORS.muted, fontVariantNumeric: "tabular-nums" }}>
+                    {profilePlayer.team} · Bye {profilePlayer.bye_week}
+                  </div>
                 </div>
               </div>
               <button
