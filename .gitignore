@@ -8,3 +8,8 @@
 *.pdf
 *.ppt
 *.pptx
+
+# Downloaded player headshots are reproducible CDN pulls (~1.2GB) and not
+# needed by the app (it loads images from ESPN's CDN at runtime). Keep them
+# out of git; re-run 04_add_player_images.py to regenerate locally.
+data/player_images/
